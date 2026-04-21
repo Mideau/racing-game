@@ -11,6 +11,7 @@ canvas{display:block}
 #hud{position:absolute;top:14px;left:14px;font-size:13px;line-height:2.1;pointer-events:none;text-shadow:1px 1px 4px rgba(0,0,0,.9)}
 #spd{font-size:26px;color:#ff2222;font-weight:bold;line-height:1.3}
 #spd span{font-size:14px;font-weight:normal;color:#cc4444}
+#drsd{font-size:15px;letter-spacing:1px;transition:color .1s}
 .dim{color:#666}
 #overlay{position:absolute;inset:0;background:rgba(0,0,0,.92);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px}
 #overlay h1{font-size:64px;color:#ff2222;letter-spacing:14px;text-shadow:0 0 40px rgba(255,34,34,.4)}
@@ -23,9 +24,10 @@ canvas{display:block}
 </head>
 <body>
 <div id="wrap">
-  <canvas id="c" width="1050" height="650"></canvas>
+  <canvas id="c" width="1200" height="750"></canvas>
   <div id="hud">
     <div id="spd">0 <span>KM/H</span></div>
+    <div id="drsd" class="dim">DRS &nbsp;—</div>
     <div id="lapd" class="dim">LAP &nbsp; 1 / 3</div>
     <div id="timed">TIME &nbsp;—</div>
     <div id="bestd" class="dim">BEST &nbsp;—</div>
@@ -34,10 +36,10 @@ canvas{display:block}
   <div id="overlay">
     <h1>F1</h1>
     <div class="sub">MINIMAL RACING</div>
-    <div class="hint">3 LAPS &nbsp;·&nbsp; BEAT THE AI &nbsp;·&nbsp; SET YOUR BEST LAP</div>
+    <div class="hint">3 LAPS &nbsp;·&nbsp; BEAT THE AI &nbsp;·&nbsp; HOLD SPACE FOR DRS</div>
     <button onclick="startRace()">RACE</button>
   </div>
-  <div id="ctrls">W / ↑ &nbsp; ACCELERATE &nbsp;&nbsp; S / ↓ &nbsp; BRAKE &nbsp;&nbsp; A ← &nbsp; D → &nbsp; STEER</div>
+  <div id="ctrls">W / ↑ ACCELERATE &nbsp; S / ↓ BRAKE &nbsp; A← D→ STEER &nbsp; SPACE DRS</div>
 </div>
 <script>
 const C = document.getElementById('c');
@@ -45,35 +47,33 @@ const ctx = C.getContext('2d');
 const W = C.width, H = C.height;
 
 // ── TRACK ─────────────────────────────────────────────────────────────────────
-const TW = 130; // track width in px
+const TW = 185; // track width — very wide
 
-// Centre-line waypoints (clockwise). Last point closes to first.
-// Longer circuit: long front straight → right sweeper → back section chicane → left hairpin → return
+// Centre-line waypoints (clockwise). Final point closes back to first.
 const TP = [
-  {x:195, y:115},  //  0  start/finish (top-left)
-  {x:795, y:115},  //  1  end of long front straight
-  {x:868, y:138},  //  2  T1 entry
-  {x:912, y:200},  //  3  T1 apex
-  {x:930, y:296},  //  4  right side straight
-  {x:908, y:382},  //  5  T2 entry
-  {x:845, y:435},  //  6  T2 apex
-  {x:752, y:470},  //  7  T2 exit
-  {x:612, y:492},  //  8  back straight
-  {x:502, y:508},  //  9  chicane bump-left
-  {x:432, y:490},  // 10  chicane apex
-  {x:362, y:510},  // 11  chicane bump-right
-  {x:275, y:494},  // 12  after chicane
-  {x:172, y:474},  // 13  hairpin entry
-  {x:105, y:428},  // 14  hairpin curve
-  {x:82,  y:358},  // 15  hairpin apex
-  {x:105, y:288},  // 16  hairpin exit
-  {x:152, y:248},  // 17  climbing back up
-  {x:172, y:188},  // 18  final sector
-  {x:195, y:115},  // 19  close = same as 0
+  {x:255, y:118},   //  0  start/finish
+  {x:950, y:118},   //  1  end of super-long front straight
+  {x:1048,y:146},   //  2  T1 entry
+  {x:1098,y:228},   //  3  T1 apex
+  {x:1115,y:358},   //  4  right side straight
+  {x:1090,y:478},   //  5  T2 entry
+  {x:1010,y:548},   //  6  T2 apex
+  {x:890, y:592},   //  7  T2 exit
+  {x:730, y:618},   //  8  long bottom straight
+  {x:575, y:632},   //  9  bottom straight continues
+  {x:418, y:626},   // 10  bottom section
+  {x:282, y:606},   // 11  hairpin entry
+  {x:175, y:568},   // 12  hairpin curve
+  {x:112, y:500},   // 13  hairpin apex
+  {x:100, y:412},   // 14  hairpin exit
+  {x:130, y:326},   // 15  climbing left side
+  {x:168, y:252},   // 16  final sector
+  {x:208, y:182},   // 17  approaching start
+  {x:255, y:118},   // 18  close
 ];
-const NWP = TP.length - 1; // real waypoint count (excluding duplicate close)
+const NWP = TP.length - 1;
 
-// Draw smooth closed path through TP using quadratic bezier midpoints
+// Build smooth closed path
 function buildPath() {
   ctx.beginPath();
   ctx.moveTo((TP[0].x+TP[1].x)/2, (TP[0].y+TP[1].y)/2);
@@ -84,7 +84,7 @@ function buildPath() {
   ctx.closePath();
 }
 
-// On-track check via closest-point-on-segment distance
+// On-track check via segment distance
 function onTrack(x, y) {
   const r = TW * 0.5;
   for (let i=0; i<TP.length-1; i++) {
@@ -100,6 +100,10 @@ function onTrack(x, y) {
 
 // ── CAR ───────────────────────────────────────────────────────────────────────
 const TOTAL_LAPS = 3;
+const SPD_MULT   = 68;
+const MAX_SPD    = 4.4;
+const DRS_BONUS  = 0.45;
+
 let cars=[], player, gameRunning=false, finishOrder=[];
 let raceStartTime=0;
 
@@ -109,50 +113,58 @@ class Car {
     this.color=color; this.isPlayer=isPlayer;
     this.lap=1; this.lapT=0; this.bestLap=Infinity;
     this.checkpoint=false; this.finished=false;
-    this.aiWp=1; // AI: index of next target waypoint
-    // Light skid trail
+    this.aiWp=1;
+    this.drsLevel=0;
     this.trail=[];
   }
 
   update(K) {
-    if (this.finished) { this.spd *= 0.93; this._move(); return; }
+    if (this.finished) { this.spd *= 0.94; this._move(); return; }
 
     if (this.isPlayer) {
-      const up = K.ArrowUp||K.w||K.W;
-      const dn = K.ArrowDown||K.s||K.S;
-      const lt = K.ArrowLeft||K.a||K.A;
-      const rt = K.ArrowRight||K.d||K.D;
-      const grip = Math.min(this.spd/3, 1);
+      const up  = K.ArrowUp  || K.w || K.W;
+      const dn  = K.ArrowDown|| K.s || K.S;
+      const lt  = K.ArrowLeft|| K.a || K.A;
+      const rt  = K.ArrowRight||K.d || K.D;
+      const drs = K[' '];
+      const grip = Math.min(this.spd / 3, 1);
 
-      if (up) this.spd = Math.min(this.spd+0.09, 4.4);
-      else if (dn) this.spd = Math.max(this.spd*0.89, 0);
+      if (up) this.spd = Math.min(this.spd + 0.09, MAX_SPD);
+      else if (dn) this.spd = Math.max(this.spd * 0.89, 0);
       else this.spd *= 0.978;
 
-      if (lt) this.angle -= 0.044*grip;
-      if (rt) this.angle += 0.044*grip;
+      if (drs && this.spd > 1.5) {
+        this.drsLevel = Math.min(1, this.drsLevel + 0.028);
+      } else {
+        this.drsLevel = Math.max(0, this.drsLevel - 0.022);
+      }
+      if (this.drsLevel > 0) {
+        const drsTarget = MAX_SPD + this.drsLevel * DRS_BONUS;
+        this.spd = Math.min(this.spd + this.drsLevel * 0.04, drsTarget);
+      }
 
-      // Record skid trail when off-track
-      if (!onTrack(this.x,this.y) && this.spd>1) {
-        this.trail.push({x:this.x,y:this.y,a:0.6});
-        if (this.trail.length>120) this.trail.shift();
+      if (lt) this.angle -= 0.044 * grip;
+      if (rt) this.angle += 0.044 * grip;
+
+      if (!onTrack(this.x, this.y) && this.spd > 1) {
+        this.trail.push({x:this.x, y:this.y, a:0.5});
+        if (this.trail.length > 150) this.trail.shift();
       }
     } else {
-      // AI: steer toward next waypoint
       const tgt = TP[this.aiWp];
       const dx=tgt.x-this.x, dy=tgt.y-this.y;
-      const dist=Math.hypot(dx,dy);
-      let da=Math.atan2(dy,dx)-this.angle;
-      while (da>Math.PI) da-=2*Math.PI;
-      while (da<-Math.PI) da+=2*Math.PI;
+      const dist=Math.hypot(dx, dy);
+      let da=Math.atan2(dy, dx)-this.angle;
+      while (da >  Math.PI) da -= 2*Math.PI;
+      while (da < -Math.PI) da += 2*Math.PI;
       this.angle += Math.sign(da)*Math.min(Math.abs(da), 0.036);
 
-      const maxS = this.color==='#0099ff' ? 3.3 : 3.0;
-      this.spd = Math.min(this.spd+0.07, maxS);
-      if (dist<28) this.aiWp=(this.aiWp+1)%NWP;
+      const maxS = this.color==='#0099ff' ? 3.35 : 3.05;
+      this.spd = Math.min(this.spd + 0.07, maxS);
+      if (dist < 30) this.aiWp = (this.aiWp+1) % NWP;
     }
 
-    // Off-track penalty (very light — just a gentle slow)
-    if (!onTrack(this.x,this.y)) this.spd *= 0.975;
+    if (!onTrack(this.x, this.y)) this.spd *= 0.998;
     this.spd = Math.max(0, this.spd);
 
     this._move();
@@ -160,39 +172,35 @@ class Car {
   }
 
   _move() {
-    this.x += Math.cos(this.angle)*this.spd;
-    this.y += Math.sin(this.angle)*this.spd;
+    this.x += Math.cos(this.angle) * this.spd;
+    this.y += Math.sin(this.angle) * this.spd;
     this.x = Math.max(8, Math.min(W-8, this.x));
     this.y = Math.max(8, Math.min(H-8, this.y));
   }
 
   _checkFinish() {
-    // Checkpoint: back section of circuit (chicane area)
-    if (this.y>468 && this.x>340 && this.x<660) this.checkpoint=true;
+    if (this.y > 580 && this.x > 380 && this.x < 780) this.checkpoint = true;
 
-    // Finish line at x=270, front straight y≈115
     const px = this.x - Math.cos(this.angle)*this.spd;
-    if (px<270 && this.x>=270 && this.y>94 && this.y<136
+    if (px<300 && this.x>=300 && this.y>96 && this.y<142
         && Math.cos(this.angle)>0.45 && this.checkpoint) {
 
-      if (this.lapT>0) {
-        const lt = performance.now()-this.lapT;
-        if (lt<this.bestLap) this.bestLap=lt;
+      if (this.lapT > 0) {
+        const lt = performance.now() - this.lapT;
+        if (lt < this.bestLap) this.bestLap = lt;
       }
-      this.lapT=performance.now();
-      this.checkpoint=false;
+      this.lapT = performance.now();
+      this.checkpoint = false;
       this.lap++;
-      if (this.lap>TOTAL_LAPS) {
-        this.lap=TOTAL_LAPS;
-        this.finished=true;
+      if (this.lap > TOTAL_LAPS) {
+        this.lap = TOTAL_LAPS;
+        this.finished = true;
         if (!finishOrder.includes(this)) finishOrder.push(this);
       }
     }
   }
 
-  // Rough progress metric for position display
   get progress() {
-    // Closest waypoint distance contribution
     let minDist=Infinity, closestI=0;
     for (let i=0; i<NWP; i++) {
       const d=Math.hypot(this.x-TP[i].x, this.y-TP[i].y);
@@ -202,203 +210,191 @@ class Car {
   }
 
   draw() {
-    // Fade trail
-    for (let i=this.trail.length-1; i>=0; i--) {
-      const t=this.trail[i];
-      ctx.fillStyle=`rgba(80,60,20,${t.a*0.15})`;
-      ctx.fillRect(t.x-2,t.y-2,4,4);
-      t.a *= 0.94;
+    for (const t of this.trail) {
+      ctx.fillStyle=`rgba(80,55,10,${t.a*0.12})`;
+      ctx.fillRect(t.x-2, t.y-2, 4, 4);
+      t.a *= 0.93;
     }
-    this.trail=this.trail.filter(t=>t.a>0.01);
+    this.trail = this.trail.filter(t => t.a > 0.01);
 
     ctx.save();
     ctx.translate(this.x, this.y);
     ctx.rotate(this.angle);
 
-    const L=20, W2=9;
-    // Shadow
-    ctx.fillStyle='rgba(0,0,0,0.22)';
-    ctx.fillRect(-L/2+2, -W2/2+2, L+6, W2+2);
+    const L=22, W2=10;
 
-    // Body
-    ctx.fillStyle=this.color;
+    ctx.fillStyle='rgba(0,0,0,0.2)';
+    ctx.fillRect(-L/2+2, -W2/2+2, L+7, W2+2);
+
+    ctx.fillStyle = this.color;
     ctx.fillRect(-L/2, -W2/2, L, W2);
 
-    // Front wing (perpendicular fin at nose)
-    ctx.fillRect(L/2-1, -W2/2-3, 3, W2+6);
+    if (this.isPlayer && this.drsLevel > 0.1) {
+      ctx.strokeStyle = `rgba(0,255,120,${this.drsLevel * 0.7})`;
+      ctx.lineWidth = 2;
+      ctx.strokeRect(-L/2-1, -W2/2-1, L+2, W2+2);
+    }
 
-    // Rear wing
+    ctx.fillStyle = this.color;
+    ctx.fillRect(L/2-1, -W2/2-3, 3, W2+6);
     ctx.fillRect(-L/2-2, -W2/2-2, 3, W2+4);
 
-    // Side pods (subtle shade)
-    ctx.fillStyle='rgba(0,0,0,0.25)';
+    ctx.fillStyle='rgba(0,0,0,0.22)';
     ctx.fillRect(-3, -W2/2, 10, 3);
     ctx.fillRect(-3,  W2/2-3, 10, 3);
 
-    // Cockpit visor
     ctx.fillStyle='rgba(0,0,0,0.65)';
     ctx.beginPath();
-    ctx.ellipse(3, 0, 5, 3.5, 0, 0, Math.PI*2);
+    ctx.ellipse(3, 0, 5.5, 3.5, 0, 0, Math.PI*2);
     ctx.fill();
 
-    // Wheels
     ctx.fillStyle='#111';
-    for (const [wx,wy,wl,ww] of [[-5,-W2/2-3,6,4],[4,-W2/2-3,6,4],[-5,W2/2-1,6,4],[4,W2/2-1,6,4]]) {
-      ctx.fillRect(wx-wl/2, wy, wl, ww);
-    }
+    for (const [wx,wy,wl,wh] of [[-5,-W2/2-3,6,4],[5,-W2/2-3,6,4],[-5,W2/2-1,6,4],[5,W2/2-1,6,4]])
+      ctx.fillRect(wx-wl/2, wy, wl, wh);
 
     ctx.restore();
   }
 }
 
 // ── INPUT ─────────────────────────────────────────────────────────────────────
-const K={};
-window.addEventListener('keydown', e=>{
-  K[e.key]=true;
-  if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key)) e.preventDefault();
+const K = {};
+window.addEventListener('keydown', e => {
+  K[e.key] = true;
+  if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key)) e.preventDefault();
 });
-window.addEventListener('keyup', e=>{ K[e.key]=false; });
+window.addEventListener('keyup', e => { K[e.key] = false; });
 
 // ── DRAWING ───────────────────────────────────────────────────────────────────
 function drawTrack() {
-  // Grass
-  ctx.fillStyle='#1c381c';
-  ctx.fillRect(0,0,W,H);
+  ctx.fillStyle = '#1c381c';
+  ctx.fillRect(0, 0, W, H);
 
-  // Grass texture (subtle lines)
-  ctx.strokeStyle='rgba(0,0,0,0.15)';
-  ctx.lineWidth=1;
-  for (let y=0; y<H; y+=18) {
+  ctx.strokeStyle = 'rgba(0,0,0,0.12)';
+  ctx.lineWidth = 1;
+  for (let y=0; y<H; y+=20) {
     ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke();
   }
 
-  // Track border (white curb)
-  ctx.strokeStyle='#ddd';
-  ctx.lineWidth=TW+16;
-  ctx.lineCap='round';
-  ctx.lineJoin='round';
+  ctx.strokeStyle = '#d8d8d8';
+  ctx.lineWidth = TW + 18;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
   buildPath(); ctx.stroke();
 
-  // Tarmac
-  ctx.strokeStyle='#4a4a4a';
-  ctx.lineWidth=TW;
+  ctx.strokeStyle = '#484848';
+  ctx.lineWidth = TW;
   buildPath(); ctx.stroke();
 
-  // Subtle tarmac grain
-  ctx.strokeStyle='rgba(255,255,255,0.04)';
-  ctx.lineWidth=TW-4;
+  ctx.strokeStyle = 'rgba(255,255,255,0.03)';
+  ctx.lineWidth = TW - 6;
   buildPath(); ctx.stroke();
 
-  // Centre dashes
-  ctx.strokeStyle='rgba(255,255,255,0.3)';
-  ctx.lineWidth=2;
-  ctx.setLineDash([22,24]);
+  ctx.strokeStyle = 'rgba(255,255,255,0.28)';
+  ctx.lineWidth = 2.5;
+  ctx.setLineDash([28, 28]);
   buildPath(); ctx.stroke();
   ctx.setLineDash([]);
 
-  // Kerbs (red/white alternating at track border) – drawn as ticks along path
   drawKerbs();
-
-  // Finish line (checkered strip at x=262, front straight)
   drawFinishLine();
 }
 
 function drawKerbs() {
-  // Draw small red rectangles along inner/outer edge of corner segments
-  const kerbSegments = [1,2,3,5,6,9,10,11,13,14,15]; // corners on new track
-  for (const si of kerbSegments) {
-    const a=TP[si], b=TP[si+1]||TP[0];
-    const steps=12;
+  const kerbSegs = [1, 2, 3, 5, 6, 9, 10, 12, 13, 14];
+  for (const si of kerbSegs) {
+    const a = TP[si], b = TP[si+1] || TP[0];
+    const steps = 14;
     for (let t=0; t<steps; t++) {
-      const f=t/steps;
-      const mx=a.x+(b.x-a.x)*f, my=a.y+(b.y-a.y)*f;
-      // perpendicular
-      const dx=b.x-a.x, dy=b.y-a.y;
-      const len=Math.hypot(dx,dy);
-      const nx=-dy/len, ny=dx/len;
-      const c=(t%2===0)?'#cc0000':'#ffffff';
-      ctx.fillStyle=c;
-      for (const side of [-1,1]) {
-        const ox=mx+nx*TW*0.5*side, oy=my+ny*TW*0.5*side;
-        ctx.fillRect(ox-4, oy-2, 8, 4);
+      const f = t / steps;
+      const mx = a.x+(b.x-a.x)*f, my = a.y+(b.y-a.y)*f;
+      const dx = b.x-a.x, dy = b.y-a.y;
+      const len = Math.hypot(dx, dy);
+      const nx = -dy/len, ny = dx/len;
+      ctx.fillStyle = t%2===0 ? '#cc0000' : '#ffffff';
+      for (const side of [-1, 1]) {
+        const ox = mx + nx*TW*0.5*side, oy = my + ny*TW*0.5*side;
+        ctx.fillRect(ox-4, oy-2, 9, 4);
       }
     }
   }
 }
 
 function drawFinishLine() {
-  const fx=264, fy=115, sz=9;
-  const y1=fy-TW/2+3, y2=fy+TW/2-3;
-  const rows=Math.ceil((y2-y1)/sz);
-  for (let r=0; r<rows; r++) {
+  const fx=293, fy=118, sz=10;
+  const y1=fy-TW/2+4, y2=fy+TW/2-4;
+  const rows = Math.ceil((y2-y1)/sz);
+  for (let r=0; r<rows; r++)
     for (let c=0; c<2; c++) {
-      ctx.fillStyle=(r+c)%2===0?'#ffffff':'#000000';
+      ctx.fillStyle = (r+c)%2===0 ? '#ffffff' : '#000000';
       ctx.fillRect(fx+c*sz, y1+r*sz, sz, sz);
     }
-  }
 }
 
 // ── HUD ───────────────────────────────────────────────────────────────────────
 function fmtTime(ms) {
   if (!ms || ms===Infinity || ms<=0) return '—';
-  const m=Math.floor(ms/60000);
-  const s=Math.floor((ms%60000)/1000).toString().padStart(2,'0');
-  const t=Math.floor(ms%1000).toString().padStart(3,'0');
+  const m = Math.floor(ms/60000);
+  const s = Math.floor((ms%60000)/1000).toString().padStart(2,'0');
+  const t = Math.floor(ms%1000).toString().padStart(3,'0');
   return `${m}:${s}.${t}`;
 }
 
 function updateHUD() {
-  const spdKmh = Math.round(player.spd*68);
+  const spdKmh = Math.round(player.spd * SPD_MULT);
   document.getElementById('spd').innerHTML = `${spdKmh} <span>KM/H</span>`;
+
+  const dl = player.drsLevel;
+  const drsEl = document.getElementById('drsd');
+  if (dl > 0.05) {
+    const kmh = Math.round(dl * 30);
+    const col = dl > 0.75 ? '#00ff88' : dl > 0.35 ? '#aaff44' : '#ffcc00';
+    drsEl.innerHTML = `DRS <span style="color:${col}">▶ +${kmh} KM/H</span>`;
+  } else {
+    drsEl.innerHTML = `<span class="dim">DRS &nbsp;—</span>`;
+  }
 
   const lapNum = Math.min(player.lap, TOTAL_LAPS);
   document.getElementById('lapd').textContent = `LAP   ${lapNum} / ${TOTAL_LAPS}`;
 
-  const elapsed = player.lapT>0 ? performance.now()-player.lapT : performance.now()-raceStartTime;
+  const elapsed = player.lapT > 0 ? performance.now()-player.lapT : performance.now()-raceStartTime;
   document.getElementById('timed').textContent = `TIME  ${fmtTime(elapsed)}`;
   document.getElementById('bestd').textContent = `BEST  ${fmtTime(player.bestLap)}`;
 
-  // Position
-  const sorted = [...cars].sort((a,b)=>b.progress-a.progress);
-  const pos = sorted.indexOf(player)+1;
+  const sorted = [...cars].sort((a,b) => b.progress - a.progress);
+  const pos = sorted.indexOf(player) + 1;
   document.getElementById('posd').textContent = `POS   P${pos}`;
 }
 
 // ── GAME FLOW ─────────────────────────────────────────────────────────────────
 function startRace() {
-  document.getElementById('overlay').style.display='none';
+  document.getElementById('overlay').style.display = 'none';
   cars=[]; finishOrder=[];
 
-  // Starting grid — just past the finish line (x=270), front straight y≈115
-  player = new Car(318, 108, 0, '#ff2222', true);
-  const ai1 = new Car(292, 108, 0, '#ffcc00', false);
-  const ai2 = new Car(266, 108, 0, '#0099ff', false);
-
-  // All AI start targeting waypoint 1
+  player      = new Car(348, 110, 0, '#ff2222', true);
+  const ai1   = new Car(322, 110, 0, '#ffcc00', false);
+  const ai2   = new Car(295, 110, 0, '#0099ff', false);
   ai1.aiWp=1; ai2.aiWp=1;
 
-  cars=[ai2, ai1, player];
-  gameRunning=true;
-  raceStartTime=performance.now();
-  // Set lap timers to race start
-  for (const car of cars) car.lapT=raceStartTime;
+  cars = [ai2, ai1, player];
+  gameRunning = true;
+  raceStartTime = performance.now();
+  for (const car of cars) car.lapT = raceStartTime;
 
   requestAnimationFrame(loop);
 }
 
 function showFinish() {
-  const pos = finishOrder.indexOf(player)+1;
-  const medals = ['1ST 🏆','2ND','3RD'];
-  const posStr = medals[pos-1]||`${pos}TH`;
-  const ov=document.getElementById('overlay');
-  ov.innerHTML=`
+  const pos    = finishOrder.indexOf(player) + 1;
+  const medals = ['1ST 🏆','2ND 🥈','3RD 🥉'];
+  const ov     = document.getElementById('overlay');
+  ov.innerHTML = `
     <h1>FINISH</h1>
-    <div class="sub">${posStr} PLACE</div>
+    <div class="sub">${medals[pos-1]||pos+'TH'} PLACE</div>
     <div style="font-size:14px;color:#ccc">BEST LAP &nbsp; ${fmtTime(player.bestLap)}</div>
     <div class="hint" style="margin-top:4px">TOTAL TIME &nbsp; ${fmtTime(performance.now()-raceStartTime)}</div>
     <button onclick="location.reload()">RACE AGAIN</button>
   `;
-  ov.style.display='flex';
+  ov.style.display = 'flex';
 }
 
 // ── MAIN LOOP ─────────────────────────────────────────────────────────────────
@@ -406,22 +402,15 @@ function loop() {
   if (!gameRunning) return;
 
   drawTrack();
-
   for (const car of cars) car.update(K);
-
-  // Draw cars sorted by y (lower = on top, more "in front")
-  const byY=[...cars].sort((a,b)=>a.y-b.y);
-  for (const car of byY) car.draw();
-
+  [...cars].sort((a,b)=>a.y-b.y).forEach(c=>c.draw());
   updateHUD();
 
-  // Race over when player finishes
   if (player.finished) {
-    gameRunning=false;
+    gameRunning = false;
     setTimeout(showFinish, 1600);
     return;
   }
-
   requestAnimationFrame(loop);
 }
 </script>
