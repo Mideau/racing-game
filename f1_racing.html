@@ -11,7 +11,7 @@ canvas{display:block}
 #hud{position:absolute;top:14px;left:14px;font-size:13px;line-height:2.1;pointer-events:none;text-shadow:1px 1px 4px rgba(0,0,0,.9)}
 #spd{font-size:26px;color:#ff2222;font-weight:bold;line-height:1.3}
 #spd span{font-size:14px;font-weight:normal;color:#cc4444}
-#drsd{font-size:15px;letter-spacing:1px;transition:color .1s}
+#drsd{font-size:15px;letter-spacing:1px}
 .dim{color:#666}
 #overlay{position:absolute;inset:0;background:rgba(0,0,0,.92);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px}
 #overlay h1{font-size:64px;color:#ff2222;letter-spacing:14px;text-shadow:0 0 40px rgba(255,34,34,.4)}
@@ -46,52 +46,62 @@ const C = document.getElementById('c');
 const ctx = C.getContext('2d');
 const W = C.width, H = C.height;
 
-// ── TRACK ─────────────────────────────────────────────────────────────────────
-const TW = 185; // track width — very wide
+// ── WORLD & CAMERA ────────────────────────────────────────────────────────────
+const WORLD_W = 3400, WORLD_H = 1200;
+let camX = 600, camY = 400;
 
-// Centre-line waypoints (clockwise). Final point closes back to first.
+// ── TRACK ─────────────────────────────────────────────────────────────────────
+const TW = 190; // very wide track
+
+// Massive circuit — world coordinates.
+// Clockwise. Last point = first (closes the loop).
 const TP = [
-  {x:255, y:118},   //  0  start/finish
-  {x:950, y:118},   //  1  end of super-long front straight
-  {x:1048,y:146},   //  2  T1 entry
-  {x:1098,y:228},   //  3  T1 apex
-  {x:1115,y:358},   //  4  right side straight
-  {x:1090,y:478},   //  5  T2 entry
-  {x:1010,y:548},   //  6  T2 apex
-  {x:890, y:592},   //  7  T2 exit
-  {x:730, y:618},   //  8  long bottom straight
-  {x:575, y:632},   //  9  bottom straight continues
-  {x:418, y:626},   // 10  bottom section
-  {x:282, y:606},   // 11  hairpin entry
-  {x:175, y:568},   // 12  hairpin curve
-  {x:112, y:500},   // 13  hairpin apex
-  {x:100, y:412},   // 14  hairpin exit
-  {x:130, y:326},   // 15  climbing left side
-  {x:168, y:252},   // 16  final sector
-  {x:208, y:182},   // 17  approaching start
-  {x:255, y:118},   // 18  close
+  {x: 460,  y: 260},   //  0  start / finish line
+  {x: 2780, y: 260},   //  1  ← end of MASSIVE 2320 px front straight
+  {x: 2920, y: 295},   //  2  T1 entry
+  {x: 2990, y: 400},   //  3  T1 apex
+  {x: 3020, y: 560},   //  4  right-side straight
+  {x: 2990, y: 720},   //  5  T2 entry
+  {x: 2900, y: 820},   //  6  T2 apex
+  {x: 2760, y: 880},   //  7  T2 exit
+  {x: 2400, y: 920},   //  8  long back straight begins
+  {x: 2000, y: 945},   //  9
+  {x: 1600, y: 960},   // 10
+  {x: 1200, y: 950},   // 11
+  {x: 880,  y: 925},   // 12  chicane zone
+  {x: 740,  y: 960},   // 13  chicane bump left
+  {x: 640,  y: 935},   // 14  chicane apex
+  {x: 530,  y: 958},   // 15  chicane bump right
+  {x: 390,  y: 920},   // 16  left hairpin entry
+  {x: 270,  y: 850},   // 17
+  {x: 190,  y: 750},   // 18  hairpin apex
+  {x: 195,  y: 630},   // 19  hairpin exit
+  {x: 250,  y: 520},   // 20  climbing back up
+  {x: 320,  y: 410},   // 21  final sector
+  {x: 390,  y: 320},   // 22
+  {x: 460,  y: 260},   // 23  close
 ];
 const NWP = TP.length - 1;
 
-// Build smooth closed path
-function buildPath() {
+// ── PATH HELPERS ──────────────────────────────────────────────────────────────
+// Draw smooth path through TP (world space — apply camera translate first)
+function tracePath() {
   ctx.beginPath();
   ctx.moveTo((TP[0].x+TP[1].x)/2, (TP[0].y+TP[1].y)/2);
-  for (let i=1; i<TP.length-1; i++) {
+  for (let i=1; i<TP.length-1; i++)
     ctx.quadraticCurveTo(TP[i].x, TP[i].y,
       (TP[i].x+TP[i+1].x)/2, (TP[i].y+TP[i+1].y)/2);
-  }
   ctx.closePath();
 }
 
-// On-track check via segment distance
+// On-track check (world coords, segment distance)
 function onTrack(x, y) {
   const r = TW * 0.5;
   for (let i=0; i<TP.length-1; i++) {
     const ax=TP[i].x, ay=TP[i].y, bx=TP[i+1].x, by=TP[i+1].y;
     const dx=bx-ax, dy=by-ay, l2=dx*dx+dy*dy;
-    if (l2===0) continue;
-    const t = Math.max(0, Math.min(1, ((x-ax)*dx+(y-ay)*dy)/l2));
+    if (!l2) continue;
+    const t=Math.max(0,Math.min(1,((x-ax)*dx+(y-ay)*dy)/l2));
     const nx=ax+t*dx-x, ny=ay+t*dy-y;
     if (nx*nx+ny*ny < r*r) return true;
   }
@@ -100,9 +110,9 @@ function onTrack(x, y) {
 
 // ── CAR ───────────────────────────────────────────────────────────────────────
 const TOTAL_LAPS = 3;
-const SPD_MULT   = 68;
-const MAX_SPD    = 4.4;
-const DRS_BONUS  = 0.45;
+const SPD_MULT   = 62;   // px/frame → displayed km/h
+const MAX_SPD    = 5.0;
+const DRS_BONUS  = 0.46; // ≈ +28 km/h at full charge
 
 let cars=[], player, gameRunning=false, finishOrder=[];
 let raceStartTime=0;
@@ -119,180 +129,196 @@ class Car {
   }
 
   update(K) {
-    if (this.finished) { this.spd *= 0.94; this._move(); return; }
+    if (this.finished) { this.spd*=0.95; this._move(); return; }
 
     if (this.isPlayer) {
-      const up  = K.ArrowUp  || K.w || K.W;
-      const dn  = K.ArrowDown|| K.s || K.S;
-      const lt  = K.ArrowLeft|| K.a || K.A;
-      const rt  = K.ArrowRight||K.d || K.D;
+      const up  = K.ArrowUp  ||K.w||K.W;
+      const dn  = K.ArrowDown||K.s||K.S;
+      const lt  = K.ArrowLeft||K.a||K.A;
+      const rt  = K.ArrowRight||K.d||K.D;
       const drs = K[' '];
-      const grip = Math.min(this.spd / 3, 1);
+      const grip = Math.min(this.spd/3.5, 1);
 
-      if (up) this.spd = Math.min(this.spd + 0.09, MAX_SPD);
-      else if (dn) this.spd = Math.max(this.spd * 0.89, 0);
-      else this.spd *= 0.978;
+      if (up) this.spd = Math.min(this.spd+0.10, MAX_SPD);
+      else if (dn) this.spd = Math.max(this.spd*0.88, 0);
+      else this.spd *= 0.979;
 
-      if (drs && this.spd > 1.5) {
-        this.drsLevel = Math.min(1, this.drsLevel + 0.028);
-      } else {
-        this.drsLevel = Math.max(0, this.drsLevel - 0.022);
-      }
+      // DRS — builds progressively, pushes past normal cap
+      if (drs && this.spd > 1.5) this.drsLevel = Math.min(1, this.drsLevel+0.028);
+      else                        this.drsLevel = Math.max(0, this.drsLevel-0.022);
       if (this.drsLevel > 0) {
-        const drsTarget = MAX_SPD + this.drsLevel * DRS_BONUS;
-        this.spd = Math.min(this.spd + this.drsLevel * 0.04, drsTarget);
+        const top = MAX_SPD + this.drsLevel*DRS_BONUS;
+        this.spd  = Math.min(this.spd + this.drsLevel*0.045, top);
       }
 
-      if (lt) this.angle -= 0.044 * grip;
-      if (rt) this.angle += 0.044 * grip;
+      if (lt) this.angle -= 0.044*grip;
+      if (rt) this.angle += 0.044*grip;
 
-      if (!onTrack(this.x, this.y) && this.spd > 1) {
-        this.trail.push({x:this.x, y:this.y, a:0.5});
-        if (this.trail.length > 150) this.trail.shift();
+      if (!onTrack(this.x,this.y) && this.spd>1) {
+        this.trail.push({x:this.x,y:this.y,a:0.45});
+        if (this.trail.length>180) this.trail.shift();
       }
     } else {
-      const tgt = TP[this.aiWp];
+      // AI waypoint follower
+      const tgt=TP[this.aiWp];
       const dx=tgt.x-this.x, dy=tgt.y-this.y;
-      const dist=Math.hypot(dx, dy);
-      let da=Math.atan2(dy, dx)-this.angle;
-      while (da >  Math.PI) da -= 2*Math.PI;
-      while (da < -Math.PI) da += 2*Math.PI;
-      this.angle += Math.sign(da)*Math.min(Math.abs(da), 0.036);
-
-      const maxS = this.color==='#0099ff' ? 3.35 : 3.05;
-      this.spd = Math.min(this.spd + 0.07, maxS);
-      if (dist < 30) this.aiWp = (this.aiWp+1) % NWP;
+      let da=Math.atan2(dy,dx)-this.angle;
+      while(da> Math.PI) da-=2*Math.PI;
+      while(da<-Math.PI) da+=2*Math.PI;
+      this.angle += Math.sign(da)*Math.min(Math.abs(da),0.035);
+      const ms = this.color==='#0099ff'?3.6:3.3;
+      this.spd  = Math.min(this.spd+0.08, ms);
+      if (Math.hypot(dx,dy)<32) this.aiWp=(this.aiWp+1)%NWP;
     }
 
-    if (!onTrack(this.x, this.y)) this.spd *= 0.998;
+    // Off-track: absolute minimum penalty
+    if (!onTrack(this.x,this.y)) this.spd *= 0.998;
     this.spd = Math.max(0, this.spd);
-
     this._move();
     this._checkFinish();
   }
 
   _move() {
-    this.x += Math.cos(this.angle) * this.spd;
-    this.y += Math.sin(this.angle) * this.spd;
-    this.x = Math.max(8, Math.min(W-8, this.x));
-    this.y = Math.max(8, Math.min(H-8, this.y));
+    this.x += Math.cos(this.angle)*this.spd;
+    this.y += Math.sin(this.angle)*this.spd;
+    this.x  = Math.max(10, Math.min(WORLD_W-10, this.x));
+    this.y  = Math.max(10, Math.min(WORLD_H-10, this.y));
   }
 
   _checkFinish() {
-    if (this.y > 580 && this.x > 380 && this.x < 780) this.checkpoint = true;
+    // Checkpoint deep in back straight
+    if (this.y>895 && this.x>900 && this.x<2200) this.checkpoint=true;
 
-    const px = this.x - Math.cos(this.angle)*this.spd;
-    if (px<300 && this.x>=300 && this.y>96 && this.y<142
+    // Finish line at x=490, front straight y≈260
+    const px=this.x-Math.cos(this.angle)*this.spd;
+    if (px<490 && this.x>=490 && this.y>235 && this.y<287
         && Math.cos(this.angle)>0.45 && this.checkpoint) {
-
-      if (this.lapT > 0) {
-        const lt = performance.now() - this.lapT;
-        if (lt < this.bestLap) this.bestLap = lt;
+      if (this.lapT>0) {
+        const lt=performance.now()-this.lapT;
+        if (lt<this.bestLap) this.bestLap=lt;
       }
-      this.lapT = performance.now();
-      this.checkpoint = false;
+      this.lapT=performance.now();
+      this.checkpoint=false;
       this.lap++;
-      if (this.lap > TOTAL_LAPS) {
-        this.lap = TOTAL_LAPS;
-        this.finished = true;
+      if (this.lap>TOTAL_LAPS) {
+        this.lap=TOTAL_LAPS; this.finished=true;
         if (!finishOrder.includes(this)) finishOrder.push(this);
       }
     }
   }
 
   get progress() {
-    let minDist=Infinity, closestI=0;
-    for (let i=0; i<NWP; i++) {
-      const d=Math.hypot(this.x-TP[i].x, this.y-TP[i].y);
-      if (d<minDist) { minDist=d; closestI=i; }
+    let md=Infinity, ci=0;
+    for (let i=0;i<NWP;i++) {
+      const d=Math.hypot(this.x-TP[i].x,this.y-TP[i].y);
+      if (d<md){md=d;ci=i;}
     }
-    return this.lap*1000 + closestI - minDist/100;
+    return this.lap*1000+ci-md/100;
   }
 
   draw() {
+    // Skid trail (world space)
     for (const t of this.trail) {
-      ctx.fillStyle=`rgba(80,55,10,${t.a*0.12})`;
-      ctx.fillRect(t.x-2, t.y-2, 4, 4);
-      t.a *= 0.93;
+      ctx.fillStyle=`rgba(70,50,10,${t.a*0.1})`;
+      ctx.fillRect(t.x-2,t.y-2,4,4);
+      t.a*=0.94;
     }
-    this.trail = this.trail.filter(t => t.a > 0.01);
+    this.trail=this.trail.filter(t=>t.a>0.01);
 
     ctx.save();
-    ctx.translate(this.x, this.y);
+    ctx.translate(this.x,this.y);
     ctx.rotate(this.angle);
+    const L=24,W2=11;
 
-    const L=22, W2=10;
+    // Shadow
+    ctx.fillStyle='rgba(0,0,0,0.18)';
+    ctx.fillRect(-L/2+2,-W2/2+2,L+8,W2+3);
 
-    ctx.fillStyle='rgba(0,0,0,0.2)';
-    ctx.fillRect(-L/2+2, -W2/2+2, L+7, W2+2);
+    // Body
+    ctx.fillStyle=this.color;
+    ctx.fillRect(-L/2,-W2/2,L,W2);
 
-    ctx.fillStyle = this.color;
-    ctx.fillRect(-L/2, -W2/2, L, W2);
-
-    if (this.isPlayer && this.drsLevel > 0.1) {
-      ctx.strokeStyle = `rgba(0,255,120,${this.drsLevel * 0.7})`;
-      ctx.lineWidth = 2;
-      ctx.strokeRect(-L/2-1, -W2/2-1, L+2, W2+2);
+    // DRS glow
+    if (this.isPlayer && this.drsLevel>0.08) {
+      ctx.shadowColor='#00ff88';
+      ctx.shadowBlur=8*this.drsLevel;
+      ctx.strokeStyle=`rgba(0,255,136,${this.drsLevel*0.65})`;
+      ctx.lineWidth=2.5;
+      ctx.strokeRect(-L/2-1,-W2/2-1,L+2,W2+2);
+      ctx.shadowBlur=0;
     }
 
-    ctx.fillStyle = this.color;
-    ctx.fillRect(L/2-1, -W2/2-3, 3, W2+6);
-    ctx.fillRect(-L/2-2, -W2/2-2, 3, W2+4);
+    // Wings
+    ctx.fillStyle=this.color;
+    ctx.fillRect(L/2-1,-W2/2-4,3,W2+8);
+    ctx.fillRect(-L/2-2,-W2/2-2,3,W2+4);
 
-    ctx.fillStyle='rgba(0,0,0,0.22)';
-    ctx.fillRect(-3, -W2/2, 10, 3);
-    ctx.fillRect(-3,  W2/2-3, 10, 3);
+    // Pod shading
+    ctx.fillStyle='rgba(0,0,0,0.2)';
+    ctx.fillRect(-4,-W2/2,11,3);
+    ctx.fillRect(-4,W2/2-3,11,3);
 
-    ctx.fillStyle='rgba(0,0,0,0.65)';
+    // Cockpit
+    ctx.fillStyle='rgba(0,0,0,0.6)';
     ctx.beginPath();
-    ctx.ellipse(3, 0, 5.5, 3.5, 0, 0, Math.PI*2);
+    ctx.ellipse(3,0,6,3.8,0,0,Math.PI*2);
     ctx.fill();
 
+    // Wheels
     ctx.fillStyle='#111';
-    for (const [wx,wy,wl,wh] of [[-5,-W2/2-3,6,4],[5,-W2/2-3,6,4],[-5,W2/2-1,6,4],[5,W2/2-1,6,4]])
-      ctx.fillRect(wx-wl/2, wy, wl, wh);
+    for (const [wx,wy,wl,wh] of [[-6,-W2/2-3,7,4.5],[6,-W2/2-3,7,4.5],[-6,W2/2-1.5,7,4.5],[6,W2/2-1.5,7,4.5]])
+      ctx.fillRect(wx-wl/2,wy,wl,wh);
 
     ctx.restore();
   }
 }
 
 // ── INPUT ─────────────────────────────────────────────────────────────────────
-const K = {};
-window.addEventListener('keydown', e => {
-  K[e.key] = true;
-  if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key)) e.preventDefault();
+const K={};
+window.addEventListener('keydown',e=>{
+  K[e.key]=true;
+  if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key)) e.preventDefault();
 });
-window.addEventListener('keyup', e => { K[e.key] = false; });
+window.addEventListener('keyup',e=>{K[e.key]=false;});
 
-// ── DRAWING ───────────────────────────────────────────────────────────────────
-function drawTrack() {
-  ctx.fillStyle = '#1c381c';
-  ctx.fillRect(0, 0, W, H);
+// ── WORLD DRAWING ─────────────────────────────────────────────────────────────
+function drawWorld() {
+  // Background (grass) — only visible area
+  const vl=camX-W/2-20, vt=camY-H/2-20;
+  ctx.fillStyle='#1d3d1d';
+  ctx.fillRect(vl-20, vt-20, W+60, H+60);
 
-  ctx.strokeStyle = 'rgba(0,0,0,0.12)';
-  ctx.lineWidth = 1;
-  for (let y=0; y<H; y+=20) {
-    ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke();
+  // Grass stripe texture
+  ctx.strokeStyle='rgba(0,0,0,0.09)';
+  ctx.lineWidth=1;
+  const sy=Math.floor(vt/22)*22;
+  for(let y=sy;y<vt+H+40;y+=22){
+    ctx.beginPath();ctx.moveTo(vl,y);ctx.lineTo(vl+W+40,y);ctx.stroke();
   }
 
-  ctx.strokeStyle = '#d8d8d8';
-  ctx.lineWidth = TW + 18;
-  ctx.lineCap = 'round';
-  ctx.lineJoin = 'round';
-  buildPath(); ctx.stroke();
+  ctx.lineCap='round';
+  ctx.lineJoin='round';
 
-  ctx.strokeStyle = '#484848';
-  ctx.lineWidth = TW;
-  buildPath(); ctx.stroke();
+  // Curb border (white edge)
+  ctx.strokeStyle='#ddd';
+  ctx.lineWidth=TW+20;
+  tracePath(); ctx.stroke();
 
-  ctx.strokeStyle = 'rgba(255,255,255,0.03)';
-  ctx.lineWidth = TW - 6;
-  buildPath(); ctx.stroke();
+  // Tarmac
+  ctx.strokeStyle='#464646';
+  ctx.lineWidth=TW;
+  tracePath(); ctx.stroke();
 
-  ctx.strokeStyle = 'rgba(255,255,255,0.28)';
-  ctx.lineWidth = 2.5;
-  ctx.setLineDash([28, 28]);
-  buildPath(); ctx.stroke();
+  // Tarmac sheen
+  ctx.strokeStyle='rgba(255,255,255,0.025)';
+  ctx.lineWidth=TW-8;
+  tracePath(); ctx.stroke();
+
+  // Centre line dashes
+  ctx.strokeStyle='rgba(255,255,255,0.25)';
+  ctx.lineWidth=3;
+  ctx.setLineDash([34,30]);
+  tracePath(); ctx.stroke();
   ctx.setLineDash([]);
 
   drawKerbs();
@@ -300,115 +326,178 @@ function drawTrack() {
 }
 
 function drawKerbs() {
-  const kerbSegs = [1, 2, 3, 5, 6, 9, 10, 12, 13, 14];
-  for (const si of kerbSegs) {
-    const a = TP[si], b = TP[si+1] || TP[0];
-    const steps = 14;
-    for (let t=0; t<steps; t++) {
-      const f = t / steps;
-      const mx = a.x+(b.x-a.x)*f, my = a.y+(b.y-a.y)*f;
-      const dx = b.x-a.x, dy = b.y-a.y;
-      const len = Math.hypot(dx, dy);
-      const nx = -dy/len, ny = dx/len;
-      ctx.fillStyle = t%2===0 ? '#cc0000' : '#ffffff';
-      for (const side of [-1, 1]) {
-        const ox = mx + nx*TW*0.5*side, oy = my + ny*TW*0.5*side;
-        ctx.fillRect(ox-4, oy-2, 9, 4);
+  const segs=[1,2,3,5,6,13,14,15,17,18,19];
+  for (const si of segs) {
+    if (!TP[si+1]) continue;
+    const a=TP[si],b=TP[si+1];
+    const steps=16;
+    for(let t=0;t<steps;t++){
+      const f=t/steps;
+      const mx=a.x+(b.x-a.x)*f, my=a.y+(b.y-a.y)*f;
+      const dx=b.x-a.x, dy=b.y-a.y, len=Math.hypot(dx,dy);
+      const nx=-dy/len, ny=dx/len;
+      ctx.fillStyle=t%2===0?'#cc0000':'#ffffff';
+      for(const s of[-1,1]){
+        const ox=mx+nx*TW*.5*s, oy=my+ny*TW*.5*s;
+        ctx.fillRect(ox-5,oy-2.5,10,5);
       }
     }
   }
 }
 
 function drawFinishLine() {
-  const fx=293, fy=118, sz=10;
-  const y1=fy-TW/2+4, y2=fy+TW/2-4;
-  const rows = Math.ceil((y2-y1)/sz);
-  for (let r=0; r<rows; r++)
-    for (let c=0; c<2; c++) {
-      ctx.fillStyle = (r+c)%2===0 ? '#ffffff' : '#000000';
-      ctx.fillRect(fx+c*sz, y1+r*sz, sz, sz);
+  // At x=484, front straight y=260, vertical checkered strip
+  const fx=478, fy=260, sz=11;
+  const y1=fy-TW/2+5, y2=fy+TW/2-5;
+  const rows=Math.ceil((y2-y1)/sz);
+  for(let r=0;r<rows;r++)
+    for(let c=0;c<2;c++){
+      ctx.fillStyle=(r+c)%2===0?'#fff':'#000';
+      ctx.fillRect(fx+c*sz,y1+r*sz,sz,sz);
     }
 }
 
+// ── MINIMAP ───────────────────────────────────────────────────────────────────
+// Bounding box of track
+const MM_WX=130, MM_WY=240, MM_EX=3030, MM_EY=975;
+const MM_W=240, MM_H=72;
+const MM_SX=MM_W/(MM_EX-MM_WX), MM_SY=MM_H/(MM_EY-MM_WY);
+const MM_PX=W-MM_W-12, MM_PY=H-MM_H-12;
+
+function toMM(wx,wy){
+  return {x:MM_PX+(wx-MM_WX)*MM_SX, y:MM_PY+(wy-MM_WY)*MM_SY};
+}
+
+function drawMinimap() {
+  // Background
+  ctx.fillStyle='rgba(0,0,0,0.72)';
+  ctx.fillRect(MM_PX-5,MM_PY-5,MM_W+10,MM_H+10);
+
+  // Track outline on minimap
+  ctx.strokeStyle='#555';
+  ctx.lineWidth=5;
+  ctx.lineCap='round';
+  ctx.lineJoin='round';
+  ctx.beginPath();
+  const s=toMM(TP[0].x,TP[0].y);
+  ctx.moveTo(s.x,s.y);
+  for(const p of TP){ const m=toMM(p.x,p.y); ctx.lineTo(m.x,m.y);}
+  ctx.stroke();
+
+  // Finish line marker
+  const fm=toMM(478,260);
+  ctx.strokeStyle='#fff';
+  ctx.lineWidth=2;
+  ctx.beginPath();
+  ctx.moveTo(fm.x,fm.y-4);ctx.lineTo(fm.x,fm.y+4);
+  ctx.stroke();
+
+  // Cars on minimap
+  for(const car of cars){
+    const m=toMM(car.x,car.y);
+    ctx.beginPath();
+    ctx.arc(m.x,m.y,car.isPlayer?4:3,0,Math.PI*2);
+    ctx.fillStyle=car.color;
+    ctx.fill();
+  }
+
+  // Label
+  ctx.fillStyle='#444';
+  ctx.font='10px Courier New';
+  ctx.fillText('MAP',MM_PX+2,MM_PY-7);
+}
+
 // ── HUD ───────────────────────────────────────────────────────────────────────
-function fmtTime(ms) {
-  if (!ms || ms===Infinity || ms<=0) return '—';
-  const m = Math.floor(ms/60000);
-  const s = Math.floor((ms%60000)/1000).toString().padStart(2,'0');
-  const t = Math.floor(ms%1000).toString().padStart(3,'0');
+function fmtTime(ms){
+  if(!ms||ms===Infinity||ms<=0) return '—';
+  const m=Math.floor(ms/60000);
+  const s=Math.floor((ms%60000)/1000).toString().padStart(2,'0');
+  const t=Math.floor(ms%1000).toString().padStart(3,'0');
   return `${m}:${s}.${t}`;
 }
 
-function updateHUD() {
-  const spdKmh = Math.round(player.spd * SPD_MULT);
-  document.getElementById('spd').innerHTML = `${spdKmh} <span>KM/H</span>`;
+function updateHUD(){
+  const kmh=Math.round(player.spd*SPD_MULT);
+  document.getElementById('spd').innerHTML=`${kmh} <span>KM/H</span>`;
 
-  const dl = player.drsLevel;
-  const drsEl = document.getElementById('drsd');
-  if (dl > 0.05) {
-    const kmh = Math.round(dl * 30);
-    const col = dl > 0.75 ? '#00ff88' : dl > 0.35 ? '#aaff44' : '#ffcc00';
-    drsEl.innerHTML = `DRS <span style="color:${col}">▶ +${kmh} KM/H</span>`;
+  const dl=player.drsLevel;
+  const dEl=document.getElementById('drsd');
+  if(dl>0.05){
+    const col=dl>0.75?'#00ff88':dl>0.35?'#aaff44':'#ffcc00';
+    dEl.innerHTML=`DRS <span style="color:${col}">▶ +${Math.round(dl*28)} KM/H</span>`;
   } else {
-    drsEl.innerHTML = `<span class="dim">DRS &nbsp;—</span>`;
+    dEl.innerHTML=`<span class="dim">DRS &nbsp;—</span>`;
   }
 
-  const lapNum = Math.min(player.lap, TOTAL_LAPS);
-  document.getElementById('lapd').textContent = `LAP   ${lapNum} / ${TOTAL_LAPS}`;
-
-  const elapsed = player.lapT > 0 ? performance.now()-player.lapT : performance.now()-raceStartTime;
-  document.getElementById('timed').textContent = `TIME  ${fmtTime(elapsed)}`;
-  document.getElementById('bestd').textContent = `BEST  ${fmtTime(player.bestLap)}`;
-
-  const sorted = [...cars].sort((a,b) => b.progress - a.progress);
-  const pos = sorted.indexOf(player) + 1;
-  document.getElementById('posd').textContent = `POS   P${pos}`;
+  document.getElementById('lapd').textContent=`LAP   ${Math.min(player.lap,TOTAL_LAPS)} / ${TOTAL_LAPS}`;
+  const el=player.lapT>0?performance.now()-player.lapT:performance.now()-raceStartTime;
+  document.getElementById('timed').textContent=`TIME  ${fmtTime(el)}`;
+  document.getElementById('bestd').textContent=`BEST  ${fmtTime(player.bestLap)}`;
+  const pos=[...cars].sort((a,b)=>b.progress-a.progress).indexOf(player)+1;
+  document.getElementById('posd').textContent=`POS   P${pos}`;
 }
 
 // ── GAME FLOW ─────────────────────────────────────────────────────────────────
-function startRace() {
-  document.getElementById('overlay').style.display = 'none';
+function startRace(){
+  document.getElementById('overlay').style.display='none';
   cars=[]; finishOrder=[];
 
-  player      = new Car(348, 110, 0, '#ff2222', true);
-  const ai1   = new Car(322, 110, 0, '#ffcc00', false);
-  const ai2   = new Car(295, 110, 0, '#0099ff', false);
+  player    =new Car(560,252,0,'#ff2222',true);
+  const ai1 =new Car(525,252,0,'#ffcc00',false);
+  const ai2 =new Car(490,252,0,'#0099ff',false);
   ai1.aiWp=1; ai2.aiWp=1;
+  cars=[ai2,ai1,player];
 
-  cars = [ai2, ai1, player];
-  gameRunning = true;
-  raceStartTime = performance.now();
-  for (const car of cars) car.lapT = raceStartTime;
-
+  camX=player.x; camY=player.y;
+  gameRunning=true;
+  raceStartTime=performance.now();
+  for(const car of cars) car.lapT=raceStartTime;
   requestAnimationFrame(loop);
 }
 
-function showFinish() {
-  const pos    = finishOrder.indexOf(player) + 1;
-  const medals = ['1ST 🏆','2ND 🥈','3RD 🥉'];
-  const ov     = document.getElementById('overlay');
-  ov.innerHTML = `
+function showFinish(){
+  const pos=finishOrder.indexOf(player)+1;
+  const medals=['1ST 🏆','2ND 🥈','3RD 🥉'];
+  const ov=document.getElementById('overlay');
+  ov.innerHTML=`
     <h1>FINISH</h1>
     <div class="sub">${medals[pos-1]||pos+'TH'} PLACE</div>
     <div style="font-size:14px;color:#ccc">BEST LAP &nbsp; ${fmtTime(player.bestLap)}</div>
     <div class="hint" style="margin-top:4px">TOTAL TIME &nbsp; ${fmtTime(performance.now()-raceStartTime)}</div>
     <button onclick="location.reload()">RACE AGAIN</button>
   `;
-  ov.style.display = 'flex';
+  ov.style.display='flex';
 }
 
 // ── MAIN LOOP ─────────────────────────────────────────────────────────────────
-function loop() {
-  if (!gameRunning) return;
+function loop(){
+  if(!gameRunning) return;
 
-  drawTrack();
-  for (const car of cars) car.update(K);
+  // Update
+  for(const car of cars) car.update(K);
+
+  // Smooth camera follow
+  camX += (player.x-camX)*0.08;
+  camY += (player.y-camY)*0.08;
+
+  // Clear
+  ctx.fillStyle='#1d3d1d';
+  ctx.fillRect(0,0,W,H);
+
+  // World transform
+  ctx.save();
+  ctx.translate(W/2-camX, H/2-camY);
+  drawWorld();
   [...cars].sort((a,b)=>a.y-b.y).forEach(c=>c.draw());
+  ctx.restore();
+
+  // Screen-space overlays
+  drawMinimap();
   updateHUD();
 
-  if (player.finished) {
-    gameRunning = false;
-    setTimeout(showFinish, 1600);
+  if(player.finished){
+    gameRunning=false;
+    setTimeout(showFinish,1600);
     return;
   }
   requestAnimationFrame(loop);
